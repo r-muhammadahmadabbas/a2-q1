@@ -779,38 +779,74 @@ public:
         std::cout << "Student not found.\n";
         return false;
     }
+    void backwardCollapse(Seat* deletedSeat, Room* /*roomParam*/) {
+        if (!deletedSeat) return;
 
-    // Backward collapse
-    void backwardCollapse(Seat* deletedSeat, Room* room) {
-        // Simplified backward collapse - shifts next students backward
-        Seat* current = deletedSeat;
-
-        // Find next occupied seat in sequence
-        Block* block = firstBlock;
+        Seat* vacancy = deletedSeat;
         bool foundDeleted = false;
+        int lastPlacedRoll = -1;  // To maintain ascending roll order
 
+        Block* block = firstBlock;
         while (block) {
             Floor* floor = block->firstFloor;
             while (floor) {
                 Room* rm = floor->firstRoom;
                 while (rm) {
-                    for (int col = 0; col < gridSize; col++) {
-                        for (int row = 0; row < gridSize; row++) {
+                    for (int col = 0; col < gridSize; ++col) {
+                        for (int row = 0; row < gridSize; ++row) {
                             Seat* seat = rm->getSeat(row, col);
+                            if (!seat) continue;
 
+                            // Wait until the deleted seat is reached in order
                             if (!foundDeleted) {
-                                if (seat == deletedSeat) foundDeleted = true;
+                                if (seat == deletedSeat) {
+                                    foundDeleted = true;
+                                    if (seat->student)
+                                        lastPlacedRoll = seat->student->rollNumber;
+                                }
                                 continue;
                             }
 
-                            if (seat && seat->student) {
-                                current->student = seat->student;
-                                seat->student = nullptr;
-                                rm->occupiedSeats--;
-                                if (room && current != deletedSeat) room->occupiedSeats++;
-                                current = seat;
-                                return;
+                            if (!seat->student) continue; // empty donor, skip
+
+                            Student* donor = seat->student;
+                            if (!donor) continue;
+
+                            // Get destination room (vacancy's room)
+                            Block* destBlock = nullptr;
+                            Floor* destFloor = nullptr;
+                            Room* destRoom = getRoomFromSeat(vacancy, &destBlock, &destFloor);
+                            if (!destRoom) continue;
+
+                            // 1️⃣ Parity check (odd/even batch-column rule)
+                            if (!matchesParity(donor->batchID, vacancy->col))
+                                continue;
+
+                            // 2️⃣ Subject restriction rule
+                            if (!checkSubjectRestriction(destRoom, donor->batchID, donor->subject.c_str()))
+                                continue;
+
+                            // 3️⃣ Ascending roll order check
+                            if (lastPlacedRoll != -1 && donor->rollNumber < lastPlacedRoll)
+                                continue;
+
+                            // ✅ All rules satisfied → perform backward shift
+                            seat->student = nullptr;
+                            vacancy->student = donor;
+                            lastPlacedRoll = donor->rollNumber;
+
+                            // Update occupancy counts if crossing rooms
+                            if (rm != destRoom) {
+                                if (rm->occupiedSeats > 0) rm->occupiedSeats--;
+                                destRoom->occupiedSeats++;
                             }
+
+                            // If donor room underfilled → roomCollapse
+                            if (rm->occupiedSeats < rm->getMinOccupancy())
+                                roomCollapse(rm);
+
+                            // Vacancy moves to donor’s seat → next loop continues
+                            vacancy = seat;
                         }
                     }
                     rm = rm->next;
@@ -819,7 +855,51 @@ public:
             }
             block = block->next;
         }
+
+        // When loop ends, no more valid donors exist.
+        return;
     }
+
+//   Backward collapse
+    //void backwardCollapse(Seat* deletedSeat, Room* room) {
+    //    // Simplified backward collapse - shifts next students backward
+    //    Seat* current = deletedSeat;
+
+    //    // Find next occupied seat in sequence
+    //    Block* block = firstBlock;
+    //    bool foundDeleted = false;
+
+    //    while (block) {
+    //        Floor* floor = block->firstFloor;
+    //        while (floor) {
+    //            Room* rm = floor->firstRoom;
+    //            while (rm) {
+    //                for (int col = 0; col < gridSize; col++) {
+    //                    for (int row = 0; row < gridSize; row++) {
+    //                        Seat* seat = rm->getSeat(row, col);
+
+    //                        if (!foundDeleted) {
+    //                            if (seat == deletedSeat) foundDeleted = true;
+    //                            continue;
+    //                        }
+
+    //                        if (seat && seat->student) {
+    //                            current->student = seat->student;
+    //                            seat->student = nullptr;
+    //                            rm->occupiedSeats--;
+    //                            if (room && current != deletedSeat) room->occupiedSeats++;
+    //                            current = seat;
+    //                            return;
+    //                        }
+    //                    }
+    //                }
+    //                rm = rm->next;
+    //            }
+    //            floor = floor->next;
+    //        }
+    //        block = block->next;
+    //    }
+    //}
 
     // Room collapse (stub - borrow from previous room)
     void roomCollapse(Room* room) {
@@ -1205,4 +1285,4 @@ public:
         std::cout << "\n";
     }
 };
-a
+
